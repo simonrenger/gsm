@@ -14,6 +14,7 @@ FLAGS:
 
 OPTIONS:
     -a, --add <submdoule>       Adds a submodule
+    -i, --init <submdoule>      init submodule or all if all is given (might take long)
     -n, --name <name>           names a submodule
     -r, --remove <submdoule>    removes a submodule
     -u, --update <submdoule>    updates submodule to latests
