@@ -1,11 +1,13 @@
 extern crate clap;
-use git2::{Repository,Error,SubmoduleUpdateOptions,build,SubmoduleIgnore};
+use git2::{Repository,Error};
 use clap::{Arg, App};
 use std;
 use std::io;
 use std::fs::File;
 use std::io::{BufRead};
 use std::path::Path;
+use std::fs::OpenOptions;
+use std::io::prelude::*;
 
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
@@ -34,7 +36,13 @@ fn get_path(submodule : &str ,path : Option<&str>) ->  io::Result<std::path::Pat
 
 fn can_add_submodule(repo :&Repository,submodule : &str) -> bool{
     let list_of = repo.submodules().unwrap();
-    match list_of.into_iter().find(|entry| entry.url().unwrap() == submodule){
+    match list_of.into_iter().find(|entry|{
+        if entry.url().is_some(){
+            entry.url().unwrap() == submodule
+        }else{
+            false
+        }
+    }){
         Some(_) => false,
         None => true
     }
@@ -63,13 +71,12 @@ fn remove(repo : &Repository,submodule_name : &str){
     let list_of = repo.submodules().unwrap();
     match list_of.into_iter().find(|entry| entry.name().unwrap() == submodule_name){
         Some(submodule) => {
-            // earse moduel from configthread::spawn(move || {
                 let path = repo.path().join("..").join(".gitmodules");
                 let path_str = String::from(path.to_str().unwrap());
                 println!("{:?}",path);
                 if let Ok(lines) = read_lines(path) {
                     let mut count = 0;
-                    let mut content: String  = String::new();
+                    let mut content: Vec<String>  = Vec::new();
                     for line in lines {
                         if let Ok(ip) = line {
                             let mut pattern = "[submodule \"".to_string();
@@ -78,18 +85,51 @@ fn remove(repo : &Repository,submodule_name : &str){
                             if ip.contains(&pattern){
                                 count += 1;
                             }else if count == 0{
-                                content += &String::from(&ip);
-                                content += "\n";
-                            }else if count >= 3{
-                                println!("{:?}",ip);
+                                content.push(String::from(&ip));
+                            }else if count >= 2{
                                 count = 0;
                             }else{
                                 count += 1;
                             }
                         }
                     }
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(path_str)
+                    .unwrap();
+            
+            for entry in content{
+                if let Err(e) = writeln!(file,"{}",entry) {
+                        eprintln!("Couldn't write to file: {}", e);
+                    }
+                }
+            }
+           
 
-                    std::fs::write(path_str,content);
+            { // remove from config
+                let mut config = git2::Config::open(std::path::Path::new(".git/config")).unwrap();
+                let mut string = String::from("submodule.");
+                string += submodule.name().unwrap();
+                string += &String::from(".url");
+                config.remove(&string).unwrap();
+            }
+
+            { // remove from index
+                let mut index = repo.index().unwrap();
+                index.remove_all(submodule.path(),None).unwrap();
+                index.write().unwrap();
+            }
+
+            { // remove from modules folder
+                let path = std::path::Path::new(".git/modules/").join(submodule.path());
+                std::fs::remove_dir_all(path).unwrap();
+            }
+            {// remove local files:
+                let current_dir = std::env::current_dir().unwrap();
+                let path = current_dir.join(submodule.path());
+                std::fs::remove_dir_all(path).unwrap();
             }
         }
         None => {
