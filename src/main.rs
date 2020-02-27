@@ -1,20 +1,8 @@
 extern crate clap;
-use git2::{Repository,Error,SubmoduleUpdateOptions,Submodule};
+use git2::{Repository,Error,SubmoduleUpdateOptions};
 use clap::{Arg, App};
 use std;
 use std::io;
-use std::fs::File;
-use std::io::{BufRead};
-use std::path::Path;
-use std::fs::OpenOptions;
-use std::io::prelude::*;
-
-
-fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
-where P: AsRef<Path>, {
-    let file = File::open(filename)?;
-    Ok(io::BufReader::new(file).lines())
-}
 
 fn get_path(submodule : &str ,path : Option<&str>) ->  io::Result<std::path::PathBuf>{
     match path{
@@ -103,69 +91,59 @@ fn update(repo : &Repository,submodule_name : &str){
             println!("Cannot update submodule because it does not exists!");
         }
 }
+
+fn remove_from_config(file : &str,submodule_name : &str){
+    let mut config = git2::Config::open(std::path::Path::new(file)).unwrap();
+    let values: Vec<String> = config
+    .entries(None)
+    .unwrap()
+    .into_iter()
+    .map(|entry|entry.unwrap().name().unwrap().into())
+    .collect();
+
+     for entry in  values{
+        let mut find_str = String::from("submodule.");
+        find_str += submodule_name;
+        if entry.contains(&find_str){
+            if config.remove(&entry).is_err(){
+                println!("Cannot find {} entry in {}",entry,file);
+            }
+        }
+    }   
+}
+
 fn remove(repo : &Repository,submodule_name : &str){
     let list_of = repo.submodules().unwrap();
     match list_of.into_iter().find(|entry| entry.name().unwrap() == submodule_name){
         Some(submodule) => {
-                let path = repo.path().join("..").join(".gitmodules");
-                let path_str = String::from(path.to_str().unwrap());
-                println!("{:?}",path);
-                if let Ok(lines) = read_lines(path) {
-                    let mut count = 0;
-                    let mut content: Vec<String>  = Vec::new();
-                    for line in lines {
-                        if let Ok(ip) = line {
-                            let mut pattern = "[submodule \"".to_string();
-                            pattern += submodule.name().unwrap();
-                            pattern += &"\"]".to_string();
-                            if ip.contains(&pattern){
-                                count += 1;
-                            }else if count == 0{
-                                content.push(String::from(&ip));
-                            }else if count >= 2{
-                                count = 0;
-                            }else{
-                                count += 1;
-                            }
-                        }
-                    }
-                let mut file = OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(path_str)
-                    .unwrap();
-            
-            for entry in content{
-                if let Err(e) = writeln!(file,"{}",entry) {
-                        eprintln!("Couldn't write to file: {}", e);
-                    }
-                }
+
+            { // remove from .gitmodules
+                remove_from_config(".gitmodules",submodule.name().unwrap());
             }
-           
 
             { // remove from config
-                let mut config = git2::Config::open(std::path::Path::new(".git/config")).unwrap();
-                let mut string = String::from("submodule.");
-                string += submodule.name().unwrap();
-                string += &String::from(".url");
-                config.remove(&string).unwrap();
+                remove_from_config(".git/config",submodule.name().unwrap());
             }
 
             { // remove from index
                 let mut index = repo.index().unwrap();
-                index.remove_all(submodule.path(),None).unwrap();
+                index.remove_dir(submodule.path(),0).unwrap();
                 index.write().unwrap();
+                index.write_tree().unwrap();
             }
 
             { // remove from modules folder
                 let path = std::path::Path::new(".git/modules/").join(submodule.path());
-                std::fs::remove_dir_all(path).unwrap();
+                if std::fs::remove_dir_all(&path).is_err(){
+                    println!("Error: could not remove {:?}", path.display());
+                }
             }
             {// remove local files:
                 let current_dir = std::env::current_dir().unwrap();
                 let path = current_dir.join(submodule.path());
-                std::fs::remove_dir_all(path).unwrap();
+                if std::fs::remove_dir_all(&path).is_err(){
+                    println!("Error: could not remove {:?}", path.display());
+                }
             }
             println!("Submodule was removed!");
         }
@@ -179,7 +157,11 @@ fn list(repo : &Repository){
    let mut count = 0;
    for module in &list_of {
        count += 1;
-       println!("#{}\nname: {}\nurl: {}\npath: {:?}\n",count,module.name().unwrap(),module.url().unwrap(),module.path().to_str());
+       if module.url().is_some() {
+        println!("#{}\nname: {}\nurl: {}\npath: {:?}\n",count,module.name().unwrap(),module.url().unwrap(),module.path().to_str());
+       }else{
+        println!("#{}\nname: {} is invalid",count,module.name().unwrap());
+       }
    }
 }
 
@@ -192,6 +174,7 @@ fn init() -> Result<Repository,Error>{
 
 fn main() {
     if let Ok(repo) = init() {
+
     let matches = App::new("gsm")
                           .version("0.1")
                           .author("Simon Renger <simon.renger@gmail.com>")
