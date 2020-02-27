@@ -66,7 +66,17 @@ fn add(repo : &Repository,submodule_url : &str,path : Option<&str>){
         println!("Repositry: {} is already added as submodule",submodule_url);
     }
 }
-
+fn update(repo : &Repository,submodule_name : &str){
+    let list_of = repo.submodules().unwrap();
+    if let Some(submodule) = list_of.into_iter().find(|entry| entry.name().unwrap() == submodule_name){
+        let url = submodule.url().unwrap();
+        remove(&repo,&submodule_name);
+        add(&repo,url,Some(&submodule_name));
+        println!("Submodule was updated!");
+        }else{
+            println!("Cannot update submodule because it does not exists!");
+        }
+}
 fn remove(repo : &Repository,submodule_name : &str){
     let list_of = repo.submodules().unwrap();
     match list_of.into_iter().find(|entry| entry.name().unwrap() == submodule_name){
@@ -131,10 +141,9 @@ fn remove(repo : &Repository,submodule_name : &str){
                 let path = current_dir.join(submodule.path());
                 std::fs::remove_dir_all(path).unwrap();
             }
+            println!("Submodule was removed!");
         }
-        None => {
-            println!("Submodule {} has not been added so we cannot remove it",submodule_name);
-        }
+        None => {}
     }
 }
 
@@ -160,7 +169,7 @@ fn main() {
     let matches = App::new("gsme")
                           .version("0.1")
                           .author("Simon Renger <simon.renger@gmail.com>")
-                          .about("Submodules easy managed")
+                          .about("submodules easy managed")
                     .arg(Arg::with_name("add")
                           .short('a')
                           .long("add")
@@ -179,10 +188,16 @@ fn main() {
                           .value_name("submdoule")
                           .help("removes a submodule")
                           .takes_value(true))
+                    .arg(Arg::with_name("update")
+                          .short('u')
+                          .long("update")
+                          .value_name("submdoule")
+                          .help("updates submodule to latests")
+                          .takes_value(true))
                     .arg(Arg::with_name("list")
                           .short('l')
                           .long("list")
-                          .help("list submdoules"))
+                          .help("list submodule"))
                     .get_matches();
     if matches.is_present("add"){
         add(&repo,matches.value_of("add").unwrap(),matches.value_of("name"));
@@ -190,6 +205,8 @@ fn main() {
         list(&repo);
     }else if matches.is_present("remove"){
         remove(&repo,matches.value_of("remove").unwrap());
+    }else if matches.is_present("update"){
+        update(&repo,matches.value_of("update").unwrap());
     }
 }else{
     println!("Could not find a git reposity");
