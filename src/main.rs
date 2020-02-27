@@ -1,5 +1,5 @@
 extern crate clap;
-use git2::{Repository,Error};
+use git2::{Repository,Error,SubmoduleUpdateOptions,Submodule};
 use clap::{Arg, App};
 use std;
 use std::io;
@@ -65,6 +65,32 @@ fn add(repo : &Repository,submodule_url : &str,path : Option<&str>){
     }else{
         println!("Repositry: {} is already added as submodule",submodule_url);
     }
+}
+
+fn init_submodules(repo : &Repository,submodule_name : &str){
+    let mut submodule_options = SubmoduleUpdateOptions::new();
+    let init = true;
+    let opts = Some(&mut submodule_options);
+    println!("Initlize {} submodules of repository {}",submodule_name,repo.path().display());
+    if submodule_name == "all"{
+
+        for mut submodule in repo.submodules().unwrap(){
+            println!("Begin Initilize: {} submodule...",submodule_name);
+            submodule.update(init, Some(&mut submodule_options)).unwrap();
+            let submdoule_repo = submodule.open().unwrap();
+            init_submodules(&submdoule_repo,"all");
+            println!("Done with initlizing {} submodule...",submodule_name);
+        }
+    }else{
+        if let Some(mut submodule) = repo.submodules().unwrap().into_iter().find(|entry| entry.name().unwrap() == submodule_name){
+            println!("Begin Initilize: {} submodule...",submodule_name);
+            submodule.update(init, opts).unwrap();
+            let submdoule_repo = submodule.open().unwrap();
+            init_submodules(&submdoule_repo,"all");
+            println!("Done with initlizing {} submodule...",submodule_name);
+        }
+    }
+    println!("Done with initlizing {} submodules of repository {}",submodule_name,repo.path().display());
 }
 fn update(repo : &Repository,submodule_name : &str){
     let list_of = repo.submodules().unwrap();
@@ -166,10 +192,10 @@ fn init() -> Result<Repository,Error>{
 
 fn main() {
     if let Ok(repo) = init() {
-    let matches = App::new("gsme")
+    let matches = App::new("gsm")
                           .version("0.1")
                           .author("Simon Renger <simon.renger@gmail.com>")
-                          .about("submodules easy managed")
+                          .about("git submodules easily managed")
                     .arg(Arg::with_name("add")
                           .short('a')
                           .long("add")
@@ -194,6 +220,12 @@ fn main() {
                           .value_name("submdoule")
                           .help("updates submodule to latests")
                           .takes_value(true))
+                    .arg(Arg::with_name("init")
+                          .short('i')
+                          .long("init")
+                          .value_name("submdoule")
+                          .help("init submodule or all if all is given")
+                          .takes_value(true))
                     .arg(Arg::with_name("list")
                           .short('l')
                           .long("list")
@@ -207,6 +239,8 @@ fn main() {
         remove(&repo,matches.value_of("remove").unwrap());
     }else if matches.is_present("update"){
         update(&repo,matches.value_of("update").unwrap());
+    }else if matches.is_present("init"){
+        init_submodules(&repo,matches.value_of("init").unwrap());
     }
 }else{
     println!("Could not find a git reposity");
